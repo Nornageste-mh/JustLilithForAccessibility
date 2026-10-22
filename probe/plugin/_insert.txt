@@ -1,0 +1,86 @@
+            // 开场/字幕载体排查：根对象 + 指定路径组件 + 全部 TMP（含 inactive）关键词匹配
+            try
+            {
+                var trs = Resources.FindObjectsOfTypeAll(Il2CppType.Of<Transform>());
+                var roots = new List<string>();
+                foreach (var o in trs)
+                {
+                    var tr = o.TryCast<Transform>();
+                    if (tr == null || tr.parent != null) continue;
+                    if (!tr.gameObject.activeInHierarchy) continue;
+                    if (roots.Count < 60) roots.Add(tr.name + "(children=" + tr.childCount + ")");
+                }
+                sb.AppendLine("[roots] " + string.Join(" | ", roots));
+            }
+            catch (Exception ex) { sb.AppendLine("[roots] error " + ex.GetType().Name + ": " + ex.Message); }
+
+            try
+            {
+                var trs2 = Resources.FindObjectsOfTypeAll(Il2CppType.Of<Transform>());
+                int shown = 0;
+                foreach (var o in trs2)
+                {
+                    var tr = o.TryCast<Transform>();
+                    if (tr == null) continue;
+                    string p = PathOf(tr);
+                    if (p.IndexOf("Opening", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        p.IndexOf("Subtitle", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        p.IndexOf("Caption", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        p.IndexOf("Frame", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        p.IndexOf("Photo", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        p.IndexOf("Dream", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (shown >= 40) break;
+                    shown++;
+                    var comps = new List<string>();
+                    foreach (var c in tr.GetComponents<Component>())
+                    {
+                        if (c == null) { comps.Add("null"); continue; }
+                        string n = c.GetType().Name;
+                        if (n == "TMP_Text" || n == "TextMeshProUGUI" || n == "TextMeshPro")
+                        {
+                            var tt = c.TryCast<TMP_Text>();
+                            string s = "";
+                            try { s = tt == null ? "" : tt.text; } catch { }
+                            n += "('" + Trunc(s) + "')";
+                        }
+                        comps.Add(n);
+                    }
+                    sb.AppendLine("[inspect] active=" + tr.gameObject.activeInHierarchy + " alpha=" + AlphaOf(tr).ToString("0.00") +
+                                  " path=" + p + " comps=" + string.Join(",", comps));
+                }
+            }
+            catch (Exception ex) { sb.AppendLine("[inspect] error " + ex.GetType().Name + ": " + ex.Message); }
+
+            try
+            {
+                var texts2 = Resources.FindObjectsOfTypeAll(Il2CppType.Of<TMP_Text>());
+                int hits = 0;
+                foreach (var o in texts2)
+                {
+                    TMP_Text t = null;
+                    try { t = o.TryCast<TMP_Text>(); } catch { }
+                    if (t == null) continue;
+                    string s = "";
+                    try { s = t.text; } catch { }
+                    if (string.IsNullOrEmpty(s)) continue;
+                    if (s.IndexOf("哥哥", StringComparison.Ordinal) < 0 && s.IndexOf("失望", StringComparison.Ordinal) < 0 &&
+                        s.IndexOf("谢谢", StringComparison.Ordinal) < 0 && s.IndexOf("最喜欢", StringComparison.Ordinal) < 0) continue;
+                    hits++;
+                    sb.AppendLine("[kw-tmp] active=" + t.gameObject.activeInHierarchy + " alpha=" + AlphaOf(t.transform).ToString("0.00") +
+                                  " path=" + PathOf(t.transform) + " value=" + Trunc(s));
+                }
+                sb.AppendLine("[kw-tmp] hits=" + hits + " (all TMP incl. inactive)");
+
+                var legacy = Resources.FindObjectsOfTypeAll(Il2CppType.Of<UnityEngine.UI.Text>());
+                int lg = 0, lgActive = 0;
+                foreach (var o in legacy)
+                {
+                    var t = o.TryCast<UnityEngine.UI.Text>();
+                    if (t == null) continue;
+                    lg++;
+                    if (t.gameObject.activeInHierarchy) lgActive++;
+                }
+                sb.AppendLine("[legacy-text] count=" + lg + " active=" + lgActive);
+            }
+            catch (Exception ex) { sb.AppendLine("[kw-tmp] error " + ex.GetType().Name + ": " + ex.Message); }
+

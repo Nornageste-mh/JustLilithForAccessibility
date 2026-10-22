@@ -1,0 +1,125 @@
+《不/存在的莉莉丝》无障碍补丁 JustLilithA11y 0.1.0
+第三方组件声明与来源说明（THIRD-PARTY NOTICES）
+================================================================
+
+本文件随发布包分发，放在 <游戏目录>\licenses\THIRD-PARTY-NOTICES.txt。
+同一目录下的 *.txt / *.md 是各组件的许可证**全文**，本文件只负责
+「哪个文件对应哪个组件、版本号、从哪来、改没改」。
+
+本补丁自身的代码（JustLilithA11y.dll）由本项目维护者编写；
+平台层部分来自 A11yFramework（MIT，作者 Nornageste）。
+游戏本体的著作权归游戏作者所有，本补丁不包含任何游戏资源，
+也不包含反编译得到的游戏代码。
+
+版本号来源说明：下面标注「实测」的版本，是从本机已安装文件里读出来的，
+不是照文档抄的（.NET FileVersionInfo 的 ProductVersion / FileVersion）。
+
+----------------------------------------------------------------
+1. BepInEx 6.0.0-be.788
+----------------------------------------------------------------
+许可证      : GNU LGPL 2.1（注意：BepInEx 5 是 MIT，BepInEx 6 才是 LGPL-2.1）
+许可证文件  : licenses\LGPL-2.1-BepInEx.txt
+实测版本    : BepInEx.Core.dll  ProductVersion = 6.0.0-be.788+5b766a3b7f6c164d4798924a93f3acf4db769d06
+              BepInEx.Unity.IL2CPP.dll 同 build
+来源        : https://github.com/BepInEx/BepInEx  （release v6.0.0-be.788）
+源码获取    : 上述 release 对应的 tag，或 commit 5b766a3b7f6c164d4798924a93f3acf4db769d06
+是否修改    : 否（按发布包原样分发，未修改、未重新编译）
+分发内容    : winhttp.dll（UnityDoorstop）、doorstop_config.ini、.doorstop_version、
+              baselib.dll、dotnet\、BepInEx\core\*.dll、BepInEx\patchers\
+
+----------------------------------------------------------------
+2. UnityDoorstop 4.5.0
+----------------------------------------------------------------
+许可证      : GNU LGPL 2.1
+许可证文件  : licenses\LGPL-2.1-UnityDoorstop.txt
+实测版本    : winhttp.dll FileVersion = 4.5.0.0；.doorstop_version 内容 = 4.5.0
+来源        : https://github.com/NeighTools/UnityDoorstop （随 BepInEx 发布包分发）
+是否修改    : 否
+
+----------------------------------------------------------------
+3. Il2CppInterop.Runtime 1.5.3
+----------------------------------------------------------------
+许可证      : GNU LGPL 3.0
+许可证文件  : licenses\LGPL-3.0-Il2CppInterop.txt
+实测版本    : Il2CppInterop.Runtime.dll ProductVersion = 1.5.3+dbda1cb353b0f4253345dc45136d170b9e50a5a0
+来源        : https://github.com/BepInEx/Il2CppInterop （随 BepInEx 6 发布包分发）
+是否修改    : 否（随包原样分发；本项目不修改 Il2CppInterop 源码）
+说明        : 本作是 IL2CPP，Il2CppInterop 是必需的运行时，不是可选组件。
+
+----------------------------------------------------------------
+4. HarmonyX（0Harmony.dll）
+----------------------------------------------------------------
+许可证      : MIT
+许可证文件  : licenses\MIT-HarmonyX.txt、licenses\MIT-HarmonyX-AndreasPardeike.txt
+来源        : https://github.com/BepInEx/HarmonyX （随 BepInEx 6 分发）
+是否修改    : 否
+
+----------------------------------------------------------------
+5. BepInEx 运行时依赖（随 BepInEx 6 发布包分发，均未修改）
+----------------------------------------------------------------
+Mono.Cecil 0.11.x        MIT   licenses\MIT-Mono.Cecil.txt
+MonoMod *                MIT   licenses\MIT-MonoMod.txt
+Cpp2IL / LibCpp2IL       MIT   licenses\MIT-Cpp2IL.txt
+AsmResolver              MIT   licenses\MIT-AsmResolver.md
+AssetRipper.CIL / .Primitives  MIT  licenses\MIT-AssetRipper.CIL.txt、
+                                     licenses\MIT-AssetRipper.Primitives.md
+uTinyRipper              MIT   licenses\MIT-uTinyRipper.md
+Disarm                   MIT   licenses\MIT-Disarm.txt
+Iced                     MIT   licenses\MIT-Iced.txt
+Capstone.NET             MIT   licenses\MIT-Capstone.NET.txt
+Capstone（原生库）        BSD-3-Clause  licenses\BSD-3-Clause-Capstone.txt
+SemanticVersioning       MIT   licenses\MIT-SemanticVersioning.txt
+dobby 1.0.5              Apache-2.0  licenses\Apache-2.0-Dobby.txt
+BepInEx.Harmony          MIT   licenses\MIT-BepInEx.Harmony.txt
+
+----------------------------------------------------------------
+6. .NET 6 运行时（dotnet\ 目录，mini-coreclr）
+----------------------------------------------------------------
+许可证      : MIT
+许可证文件  : licenses\MIT-dotnet-runtime.txt
+实测版本    : dotnet\.version 与 mscordaccore_amd64_amd64_6.0.722.32202.dll
+              （.NET 6.0.22 一代的运行时）
+来源        : https://github.com/dotnet/runtime （随 BepInEx 6 发布包分发）
+是否修改    : 否
+
+----------------------------------------------------------------
+7. NVDA Controller Client（nvdaControllerClient.dll，API 2.0）
+----------------------------------------------------------------
+许可证      : GNU LGPL 2.1
+许可证文件  : licenses\LGPL-2.1-NVDA-ControllerClient.txt
+来源        : https://download.nvaccess.org/releases/ （NV Access 官方发布）
+分发位置    : BepInEx\plugins\nvdaControllerClient.dll 与 包根 nvdaControllerClient.dll
+              （各一份，包根那份是 Windows 加载器查找顺序的兜底）
+是否修改    : 否
+源码获取    : https://github.com/nvaccess/nvda  （controllerClient 子项目）
+
+----------------------------------------------------------------
+8. 不随包分发的东西（说明一下，免得以为是漏了）
+----------------------------------------------------------------
+- 游戏本体的任何文件（GameAssembly.dll、UnityPlayer.dll、Lilith_Data\ 等）；
+- BepInEx\interop\ 与 BepInEx\unity-libs\：首次运行时按本机游戏生成，
+  与游戏二进制绑定，不能分发；
+- BepInEx\config\*.cfg：玩家自己的配置；
+- 争渡（ZDSR）的 ZDSRAPI.dll：专有软件，需玩家自行安装争渡读屏；
+  本补丁只在装了它的机器上自动查找，不随附。
+
+----------------------------------------------------------------
+9. LGPL 合规声明（BepInEx / UnityDoorstop / Il2CppInterop / NVDA Client）
+----------------------------------------------------------------
+上面标 LGPL 的组件，均以**未经修改的独立动态库/可执行文件**形式随包分发。
+这属于 LGPL 的「共享库机制」（LGPL-2.1 §6(b) / LGPL-3.0 §4(d)）：
+使用本补丁的程序（游戏 + BepInEx）与这些库之间是动态链接关系，
+因此不触发「衍生作品必须开源」的义务，但分发者必须：
+
+  1. 随二进制附上许可证全文 —— 见 licenses\ 目录，已附；
+  2. 显著声明使用的是哪个库、哪个版本、有没有改过 —— 就是本文件；
+  3. 告知源码获取途径 —— 上面每个组件的「源码获取」一行。
+
+如果你修改了这些 LGPL 组件，你必须按 LGPL 公开修改后的源码；
+本项目没有修改它们，所以没有额外源码可提供。
+
+----------------------------------------------------------------
+10. 免责
+----------------------------------------------------------------
+本补丁是玩家自制的第三方工具，与游戏作者无任何关系，未获授权或背书。
+按「现状」提供，不提供任何担保。第三方组件各自的许可证条款优先于本声明。

@@ -1,0 +1,113 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    逐作 csproj 模板。new_game.py 会按 route 参数保留 MONO 或 IL2CPP 那一段，
+    删掉另一段和所有路线标记行。
+
+    ⚠ 这里原本写的是命令行的双横线参数名，而 XML 注释里**不允许出现连续两个减号**，
+      会让 MSBuild 直接报 MSB4025「未能加载项目文件」，新作骨架一生成就编不了。
+      0.1.0.1 改成不带横线的写法。
+
+    ★ 三行可复现构建属性**一条都不能少**（README「构建与打包」）：
+        Deterministic
+        IncludeSourceRevisionInInformationalVersion=false
+        EnableSourceLink=false
+      只关前两条是不够的：SDK 默认 EnableSourceLink=true，会把当前 git 提交写进 PDB，
+      PDB 的内容哈希又进 DLL 的 debug 目录与确定性 MVID。
+      有人就只关了第一条、以为修好了，一提交才发现产物还是变。
+  -->
+
+  <PropertyGroup>
+    <AssemblyName>JustLilithA11y</AssemblyName>
+    <RootNamespace>JustLilithA11y</RootNamespace>
+    <Version>0.1.0</Version>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>CS0169;CS0414;CS0649</NoWarn>
+
+    <!-- 可复现构建三行 -->
+    <Deterministic>true</Deterministic>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableSourceLink>false</EnableSourceLink>
+
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- IL2CPP 路线额外配置 -->
+    <TargetFramework>net6.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CodePage>65001</CodePage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- IL2CPP 路线：BepInEx 6 的核心与 interop 都在游戏目录里 -->
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(LilithGameDir)\BepInEx\core\BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(LilithGameDir)\BepInEx\core\BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- BepInEx 6 的 IL2CPP 插件基类是 BepInEx.Unity.IL2CPP.BasePlugin（没有 BaseUnityPlugin），
+         它的基类型链要用到 BepInEx.Unity.Common，缺了会报 CS0246 BasePlugin。 -->
+    <Reference Include="BepInEx.Unity.Common">
+      <HintPath>$(LilithGameDir)\BepInEx\core\BepInEx.Unity.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(LilithGameDir)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(LilithGameDir)\BepInEx\core\Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!--
+      平台层（UiNav）和逐作层（UiNav.Game / Reader）要用到 uGUI 与 TextMeshPro：
+        Selectable / Button / Slider / Toggle / CanvasGroup  → UnityEngine.UI / UnityEngine.UIModule
+        TMP_Text / TextMeshProUGUI / TMP_InputField          → Unity.TextMeshPro
+      这几份是 IL2CPP 的 interop 程序集（不是 UnityEngine 原生 DLL），
+      不引用就会报 CS0246「未能找到类型 Selectable」。
+    -->
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- UnityEngine.Input（旧的 Input 类）在 2021 里独立成 InputLegacyModule，
+         Hotkey / KeyEdge / UiNav 都要用它读按键。 -->
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- EventSystems（PointerEventData / EventSystem）在 UnityEngine.UI 里 -->
+  </ItemGroup>
+
+
+  <!--
+    平台层（L1）从 A11yFramework 整份拷进 src\JustLilithA11y\ 下，
+    和逐作文件放在同一个目录里编译。默认的 glob 已经会带上它们，不需要额外配置。
+  -->
+
+</Project>
