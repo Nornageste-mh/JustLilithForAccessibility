@@ -66,6 +66,8 @@
 >
 > 把未验证的事写成已验证，是本项目明令禁止的（见下「几条纪律」）。
 
+> 发布：<https://github.com/Nornageste-mh/JustLilithForAccessibility/releases/tag/v0.1.0.0>（资产 JustLilithA11y-0.1.0.0.zip，34.2 MB / 264 条目）
+
 ## 安装（仅限正版玩家）
 
 发布形态是「把 `mod\package\` 里的东西整体拷进有 `Lilith.exe` 的那一层」，
