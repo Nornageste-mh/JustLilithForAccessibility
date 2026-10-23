@@ -54,7 +54,7 @@ namespace JustLilithA11y
     ///
     /// 铁律 1：不许猜方法名和对象名。只能来自反编译实查，或实机运行时日志。
     /// </summary>
-    [BepInPlugin(Guid, "不/存在的莉莉丝 A11y Reader", "0.1.0")]
+    [BepInPlugin(Guid, "不/存在的莉莉丝 A11y Reader", "0.2.0")]
     public class Plugin : BasePlugin
     {
         public const string Guid = "justlilith.a11y.reader";
@@ -83,6 +83,9 @@ namespace JustLilithA11y
         // ---- 界面导航 ----
         internal static ConfigEntry<bool> CfgMenuNav;
         internal static ConfigEntry<string> CfgNavKey;
+        internal static ConfigEntry<string> CfgMenuKey;
+        internal static ConfigEntry<bool> CfgMenuKeepAlive;
+        internal static ConfigEntry<bool> CfgBodyNav;
         internal static ConfigEntry<bool> CfgSortByPosition;
         internal static ConfigEntry<bool> CfgVisibleOnly;
         internal static ConfigEntry<bool> CfgQuitConfirm;
@@ -95,6 +98,7 @@ namespace JustLilithA11y
         internal static ConfigEntry<bool> CfgGlobalKeys;
         internal static ConfigEntry<bool> CfgStartupHint;
         internal static ConfigEntry<bool> CfgAnnounceOnSkipStop;
+        internal static ConfigEntry<bool> CfgBubblePersist;
         internal static ConfigEntry<bool> CfgDiagLog;
         internal static ConfigEntry<bool> CfgHarmonyPatches;
 
@@ -210,6 +214,30 @@ namespace JustLilithA11y
                 "游戏自己该收到的按键照样收到。\n" +
                 "如果某项系统权限导致读取失败，日志会写明失败原因，此时退回「只在游戏有焦点时生效」。");
 
+            CfgMenuKey = Config.Bind("界面导航", "打开菜单快捷键", "Ctrl+Alt+O",
+                "随时打开 / 关闭游戏功能菜单（SettingView）的快捷键，**不需要先进导航模式**。\n" +
+                "本作功能菜单默认不显示，而且会自己隐藏；有了这个键就能随时调出来。\n" +
+                "为什么默认 Ctrl+Alt+O：本作游戏自带 9 条热键全是 Ctrl+Alt+单字母\n" +
+                "（M 音乐 / K 闹钟 / T 计时 / P 番茄钟 / R 简易备忘 / B 详细备忘 / N 草稿备忘 / S 静音 / L 单击穿透），\n" +
+                "O 没有被占用；导航开关键是 Ctrl+Alt+主键盘加号，也不冲突。\n" +
+                "写法与「导航开关快捷键」相同（Ctrl+Alt+O / Ctrl+Alt+Plus / F2 之类），写错会在日志里提示并停用本快捷键。\n" +
+                "打开/关闭时会朗读「功能菜单已打开 / 已关闭」。");
+
+            CfgMenuKeepAlive = Config.Bind("界面导航", "功能菜单不自动隐藏", true,
+                "★ 默认开（用户需求）：功能菜单存在时间很短，读屏用户来不及操作。\n" +
+                "开启后：**由本补丁的快捷键打开**的菜单，一旦被游戏隐藏就自动重新打开\n" +
+                "（有 1.5 秒冷却与次数上限，不会无限刷；对话一开始就立刻停止保活，剧情优先）。\n" +
+                "关掉后菜单恢复游戏原本的行为。\n" +
+                "注意：如果你用鼠标点了菜单上的关闭按钮，本补丁分不清「你关的」和「游戏自动关的」，\n" +
+                "会重新打开一次 —— 本作窗口是单击穿透的，实机上点不到游戏按钮，所以基本不会遇到。");
+
+            CfgBodyNav = Config.Bind("界面导航", "身体部位导航组", true,
+                "在导航里增加一组「莉莉丝交互」，共 8 项：头 / 脸 / 胸口 / 身体 / 左手 / 右手 / 裙子 / 腿。\n" +
+                "选中某项按回车 → 直接触发游戏自己的部位交互（走游戏内 API，不注入鼠标键盘）。\n" +
+                "实现说明：游戏里这 8 个部位对象只是 Collider2D，不是可导航控件，所以本补丁\n" +
+                "另外造了一个**完全透明**的 Canvas 放 8 个虚拟按钮；它们看不见，但导航能选中、回车能触发。\n" +
+                "关掉后这一组消失（导航里其它控件不受影响）。");
+
             CfgSortByPosition = Config.Bind("界面导航", "按屏幕位置排序控件", true,
                 "按控件在屏幕上的位置排序（先上后下、同一行先左后右），让「第几项」和画面对得上。\n" +
                 "关掉则改回按渲染层级（兄弟节点序号）排序。");
@@ -254,6 +282,15 @@ namespace JustLilithA11y
                 "所以现在的实际行为是：同一句在 2.5 秒去重窗口内不会重复念，窗口外停住的那句照常念 ——\n" +
                 "这样即使游戏有快进，停下来那一句也不会漏；代价是快进过程中会跟着念（刷屏）。\n" +
                 "等实机确认快进机制（可能是连点推进而不是独立状态）后再改成真正的「跳过期间静音」。");
+
+            CfgBubblePersist = Config.Bind("其它", "对话气泡不自动消失", true,
+                "★ 默认开（用户需求）：对话气泡出现后，不要等几秒就自己消失。\n" +
+                "实机/反编译依据：本作 DialogueManager 自己有自动消失计时器\n" +
+                "（`_autoDismissTimer`，方法 `UpdateAutoDismiss()`（DialogueManager.cs:3573）推进，\n" +
+                "`ResetAutoDismissTimer()`（:3540）清零）。\n" +
+                "开启后：对话进行期间每 0.5 秒把那个计时器清零 → 气泡一直留着，直到你推进下一句。\n" +
+                "顺带把「选项列表多久后不再响应数字键」从 60 秒放宽到 10 分钟（气泡不消失时你可能会想很久）。\n" +
+                "关掉后完全恢复游戏原本的行为（气泡按游戏设定自动消失）。");
 
             CfgDiagLog = Config.Bind("其它", "界面诊断日志", false,
                 "把进入导航模式时扫描到的控件全部写进 LogOutput.log。\n" +
@@ -359,6 +396,8 @@ namespace JustLilithA11y
                 A11yHost.GameTextIsNoise = s => UiNav.GameTextIsNoise(s);
                 A11yHost.GameLabelOf     = s => UiNav.GameLabelOf(s);
                 A11yHost.GameGroupName   = t => UiNav.GameGroupName(t);
+                // 组排序：给「莉莉丝交互」一个很小的优先级（20），让它排在设置面板等默认 100 之前
+                A11yHost.GameGroupPriority = t => UiNav.GameGroupPriority(t);
 
                 // 每帧入口。逐作在这里决定要不要跑 UiNav。
                 //
@@ -377,6 +416,11 @@ namespace JustLilithA11y
                     TickPart("reader", Reader.Update);      // 台词抓取（事件失效时在这里降级轮询）
                     TickPart("choices", Choices.Update);    // 数字键选择
                     TickPart("screentext", ScreenText.Update); // 界面浮动文本（不经过 DialogueManager 的台词）
+                    // 打开菜单快捷键 + 功能菜单保活（不依赖导航模式）
+                    TickPart("menu", LilithMenu.Update);
+                    // 身体部位导航组（隐藏 Canvas 的 8 个虚拟控件，场景切换后自动重建）
+                    TickPart("bodynav", LilithBodyNav.Update);
+                TickPart("lilithapi", LilithApi.Update);   // 部位交互分阶段链 + 兜底判定
                 };
 
                 A11yHost.Validate();
@@ -937,6 +981,9 @@ namespace JustLilithA11y
         {
             try { Reader.Shutdown(); } catch { }
             try { Speech.Shutdown(); } catch { }
+            try { LilithMenu.Reset(); } catch { }
+            try { LilithBodyNav.Reset(); } catch { }
+            try { LilithApi.Reset(); } catch { }
             try { _harmony?.UnpatchSelf(); } catch { }
             try { A11yHost.Clear(); } catch { }
         }
@@ -961,3 +1008,5 @@ namespace JustLilithA11y
         }
     }
 }
+
+

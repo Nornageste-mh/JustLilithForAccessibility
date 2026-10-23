@@ -20,7 +20,9 @@
   <PropertyGroup>
     <AssemblyName>JustLilithA11y</AssemblyName>
     <RootNamespace>JustLilithA11y</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -101,6 +103,26 @@
       <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!--
+      2D 物理（Collider2D / BoxCollider2D）在 Physics2DModule。
+      逐作层取「身体部位点击锚点」必须用 typed 的 `GetComponent<Collider2D>()` +
+      `Collider2D.bounds`：反射拿到的代理对象被装成基类 `Component`，
+      `c.GetType().Name` 只会打印 "Component"，`is Collider2D` 永远 false
+      （2026-10-23 实机日志实证：`[Head:Transform,Component,Component,]`）。
+      没有这份引用就只能靠反射猜类型，猜不中。
+    -->
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!--
+      音频（AudioSource / AudioClip）：读当前播放的语音 clip 名做诊断（LilithApi.LogDiagState）。
+      在 AudioModule。
+    -->
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <!-- EventSystems（PointerEventData / EventSystem）在 UnityEngine.UI 里 -->
   </ItemGroup>
 
@@ -111,3 +133,5 @@
   -->
 
 </Project>
+
+

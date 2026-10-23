@@ -57,6 +57,10 @@
       <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.AudioModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>$(LilithGameDir)\BepInEx\interop\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>

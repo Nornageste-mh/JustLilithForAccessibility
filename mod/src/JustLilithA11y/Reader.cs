@@ -80,6 +80,10 @@ namespace JustLilithA11y
         internal static bool EventsActive { get { return _eventsOn; } }
         internal static int LineCount { get { return _lines; } }
 
+        // 台词开始次数（只增不减）：给 LilithApi 判断「触发部位后游戏有没有真的说话」。
+        private static int _startCount;
+        internal static int DialogueStartCount { get { return _startCount; } }
+
         // =====================================================================
         // 每帧
         // =====================================================================
@@ -106,8 +110,63 @@ namespace JustLilithA11y
                 PollNode();
                 PollBubbleText();
                 PollPlayerLineOptions();
+                KeepBubbleAlive();
             }
             catch (Exception e) { LogOnce("update", e); }
+        }
+
+        /// <summary>
+        /// 当前是否在对话中。
+        /// 给其它逐作模块用（例：LilithMenu 的功能菜单保活要在剧情开始时让路，
+        /// 不然会跟游戏状态机抢面板）。拿不到 DialogueManager 时返回 false。
+        /// </summary>
+        internal static bool DialogueActive
+        {
+            get
+            {
+                try { return _dm != null && _dm.IsDialogueActive; }
+                catch { return false; }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 气泡常驻（用户需求 m01949 ③：对话气泡出现后不要自动消失）
+        //
+        // 反编译实查（DialogueManager.cs）：
+        //   `_autoDismissTime`(2196) / `_autoDismissTimeLong`(2209) 是时长配置，
+        //   `_autoDismissTimer`(2410) 是当前计时器，
+        //   `ResetAutoDismissTimer()`(3540) 把计时器清零，`UpdateAutoDismiss()`(3573) 每帧推进。
+        // 也就是说本作的气泡自动消失**是游戏自己的计时器**，不是动画事件。
+        // 所以「不自动消失」= 在气泡显示期间周期性把计时器重置回 0 —— 不掐断游戏逻辑，
+        // 只是永远不让它到点；关掉配置项立刻恢复原状（游戏下一帧就把计时器推到超时）。
+        // ---------------------------------------------------------------------
+
+        private static float _nextPersistAt;
+        private static bool _autoDismissFound = true;
+
+        private static void KeepBubbleAlive()
+        {
+            try
+            {
+                bool on = true;
+                if (Plugin.CfgBubblePersist != null) on = Plugin.CfgBubblePersist.Value;
+                if (!on || !_autoDismissFound) return;
+                if (_dm == null) return;
+
+                float now = Time.unscaledTime;
+                if (now < _nextPersistAt) return;
+                _nextPersistAt = now + 0.5f;
+
+                // 不判「气泡是否正在显示」：对话期间重置计时器是幂等的，而且气泡的显示/隐藏
+                // 与这个计时器不同步（打字中、等待点击时都可能是隐藏的），少判一个条件少一个坑。
+                _dm.ResetAutoDismissTimer();
+            }
+            catch (Exception e)
+            {
+                _autoDismissFound = false;
+                LogOnce("bubble-persist", e);
+                Log(LogPrefix + " 气泡常驻已停用（ResetAutoDismissTimer 调用失败，见上一条警告）");
+            }
         }
 
         /// <summary>抓引用。找不到就每隔 2 秒再试（场景切换时对象会重建）。</summary>
@@ -255,7 +314,14 @@ namespace JustLilithA11y
 
         private static void OnStartNode(DialogueNode node)
         {
-            try { AnnounceNode(node, "event"); } catch (Exception e) { LogOnce("ev-start", e); }
+            try
+            {
+                // 给「部位交互兜底」用：每次收到新台词就 +1，
+                // LilithApi 靠它判断 DelayedSingleClick 之后游戏到底有没有反应。
+                _startCount++;
+                AnnounceNode(node, "event");
+            }
+            catch (Exception e) { LogOnce("ev-start", e); }
         }
 
         private static void OnAdvanceNode(DialogueNode node)

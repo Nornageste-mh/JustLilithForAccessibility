@@ -68,6 +68,32 @@
 
 > 发布：<https://github.com/Nornageste-mh/JustLilithForAccessibility/releases/tag/v0.1.0.0>（资产 JustLilithA11y-0.1.0.0.zip，34.2 MB / 264 条目）
 
+> ## 🆕 v0.2.0 新增（2026-10-23）
+>
+> **0.2.0 还没打包发布**（发布动作由维护者统一做）；下面是这一版相对 0.1.0 加了什么。
+>
+> 0.2.0 是照着三条用户反馈改的：**普通状态进不了导航**（游戏菜单默认不显示）、
+> **没法跟莉莉丝交互**（头/脸/胸口/身体/手/裙子/腿点不到）、**菜单存在时间太短**。
+>
+> 1. **打开功能菜单的快捷键 `Ctrl+Alt+O`**（配置 `[界面导航] 打开菜单快捷键` 可改）。
+>    它打开的是**游戏原生的功能菜单**（置顶 / 礼物 / 玻璃 / 帽子 / 退出 / 等待说话 / 关闭 …），
+>    再按一次关闭；打开、关闭都会念一句（「功能菜单已打开。」/「功能菜单已关闭。」）。
+>    为什么是 `O`：游戏自带那 9 条热键用的是别的字母，`O` 空闲。
+> 2. **身体部位导航**：导航模式里多出一组「莉莉丝交互」，8 项：
+>    **头 / 脸 / 胸口 / 身体 / 左手 / 右手 / 裙子 / 腿**（顺序按身体从上到下）。
+>    回车 = 走**游戏自己的点击链路**（先把系统光标移到该部位，再让游戏自己按下/抬起），
+>    由游戏决定放音效、播动画还是说台词；补丁只负责「点到那儿」并报告有没有反应。
+>    实现见 `LilithBodyNav.cs`（造一个隐藏 Canvas + 8 个透明虚拟按钮，
+>    `CanvasGroup.alpha=1`、`Image.color.a=0`、`raycastTarget=true`，能被导航扫到但不挡真实 UI）。
+> 3. **菜单不自动消失**：`[界面导航] 功能菜单不自动隐藏`（默认开）只在
+>    「补丁打开、且玩家没主动关」期间保活，**对话一开始就停止保活**（剧情优先）；
+>    `[其它] 对话气泡不自动消失`（默认开）在气泡显示期间周期性把计时器重置回去，不掐断游戏逻辑。
+> 4. 导航开关键不变：`Ctrl+Alt+Plus`（主键盘加号）；`Tab` 仍是兜底。
+>
+> **本轮没逐项实测的**：8 个部位各自的反应是否都能听到/看到（实机只确认到
+> 「部位命中区被正确派发、语音 clip 变了」，不是每个部位都会出新台词）；菜单保活放进长剧情后的表现；
+> `Ctrl+Alt+O` 与游戏自带热键重叠时的先后。这些都记在 [docs/TODO-待验证.md](docs/TODO-待验证.md)。
+
 ## 安装（仅限正版玩家）
 
 发布形态是「把 `mod\package\` 里的东西整体拷进有 `Lilith.exe` 的那一层」，
@@ -83,6 +109,7 @@
 | 快捷键 | 功能 | 状态 |
 |---|---|---|
 | **`Ctrl+Alt+Plus`**（主键盘加号，即 `Ctrl+Alt+Shift+=`） | **进入 / 退出界面导航模式** | **已实机验证**；默认值，可在配置里改 |
+| **`Ctrl+Alt+O`** | **打开 / 关闭游戏的功能菜单**（0.2.0 新增；不用先有可见菜单） | 已实现；**未逐项实测**（与游戏自带热键重叠时未测） |
 | `Tab` | 旧的导航切换键，仍作为兜底生效 | 已实现（兜底） |
 | `↑` `↓` | 上一项 / 下一项（念出它是什么、什么状态） | 平台层已实现；**本轮未逐项实测** |
 | `←` `→` | 调整滑条 | 平台层已实现；**本轮未逐项实测** |
@@ -99,19 +126,28 @@
 > `Ctrl+Alt+R` 提醒事项、`Ctrl+Alt+P` 番茄钟、`Ctrl+Alt+T` 计时、`Ctrl+Alt+K` 闹钟、
 > `Ctrl+Alt+M` 音乐播放器），纯 `Ctrl+Alt` 会和它们冲突；加号不在游戏热键表里，
 > 而且主键盘 `=` 上的加号还要多按一个 `Shift`，误触概率最低。
+> `Ctrl+Alt+O`（打开菜单，0.2.0 新增）同理：`O` 也不在那 9 条里。
 >
-> 实现位置：逐作层 `mod\src\JustLilithA11y\Plugin.cs:189`（`Config.Bind("界面导航", "导航开关快捷键", "Ctrl+Alt+Plus", …)`）
-> 与 `Plugin.cs:477` 的 `NavTogglePressed()`；平台层 `UiNav.cs:2160-2170`
+> 实现位置：逐作层 `mod\src\JustLilithA11y\Plugin.cs:195`（`Config.Bind("界面导航", "导航开关快捷键", "Ctrl+Alt+Plus", …)`）
+> 与 `Plugin.cs:535` 的 `NavTogglePressed()`；平台层 `UiNav.cs:2160-2161`
 > （`navHook != null ? navHook() : KeyEdge.Pressed(KeyCode.Tab)`——钩子没填就退回 `Tab`）。
 > 配置里写错会自动退回 `Tab` 并在 `LogOutput.log` 里提示。
 
 ## 已知问题 / 注意事项
 
+- **导航模式需要「先有可见菜单」**：平台层只扫当前场景里看得见的 `Selectable`，
+  游戏平时不显示功能菜单时，按 `Ctrl+Alt+Plus` 进导航会「进去了但没东西可走」。
+  0.2.0 的对策是按 **`Ctrl+Alt+O`** 先把功能菜单叫出来，再进导航
+  （菜单默认常驻，见上面「v0.2.0 新增」）。
+- **身体部位的反应由游戏决定**：回车只是把一次真实点击送到该部位，
+  放不放音效 / 播不播动画 / 说不说台词是游戏自己的逻辑。
+  实机确认到「部位命中区被正确派发、语音 clip 发生了变化」，但**不是每个部位都会出新台词**，
+  8 个部位也没有逐项听完；某个部位没反应时，把 `LogOutput.log` 里的 `[Lilith]` 行发给我们。
 - **生日日历**：生日行的「开关」是展开器不是开关，「生日」行状态语义待修；
   展开后的日历格 `DateCell` 念「14，按钮」，没有「14 日」这类语义
-  （`UiNav.Game.cs:181-190` 有按路径补语义的尝试，实机仍未达标）。
+  （`UiNav.Game.cs:193-202` 有按路径补语义的尝试，实机仍未达标）。
 - **`Btn_FolderSelect`**：在「我」tab 里被行标题覆盖，念成「你的名字，按钮」；
-  真实含义「选择文件夹」（`UiNav.Game.cs:200-201` 记录了这条实机证据）。
+  真实含义「选择文件夹」（`UiNav.Game.cs:212` 记录了这条实机证据）。
 - **方向键 / 滑块 / 分组键未逐项实测**：本轮自动化只能注入「导航开关」和「回车」。
 - **导航中不静默游戏热键**：本作输入走 native，没有可挂的托管入口，属已知取舍。
 - **开场「记忆相框」字幕读不到**：探针全量扫 `TMP_Text` / `Text` 均 0 命中，
@@ -144,7 +180,7 @@ cd mod
 取 BepInEx `6.0.0-be.788`（先看 `mod\dl\` 缓存，再看 `$env:A11Y_CACHE`）→
 取 `nvdaControllerClient.dll`（x64）→ 编译 → 组装 `package\`。
 
-**三条发布前守卫**（`build.ps1:123-145`，别删）：
+**三条发布前守卫**（`build.ps1:121-145`，别删）：
 
 1. `BepInPlugin` 的版本号必须能被 `[System.Version]::TryParse` 解析——
    写坏会让 BepInEx **静默跳过整个插件**，游戏看起来和没装一样；
@@ -158,7 +194,7 @@ cd mod
   Linux/macOS 解开会得到一堆名字里带反斜杠的平铺文件；`makezip.ps1` 手工建条目，
   分隔符固定 `/`，脚本末尾还会自检有没有反斜杠条目；
 - **`nvdaControllerClient.dll` 要放两处**：`BepInEx\plugins\` 与包根
-  （`build.ps1:167-173`；Windows 加载器会先查应用目录）。
+  （`build.ps1:170-173`；Windows 加载器会先查应用目录）。
 
 **不分发**：`BepInEx\interop\`、`BepInEx\unity-libs\`（首次运行按本机生成）、
 `BepInEx\config\*.cfg`（玩家自己的配置）、争渡的 `ZDSRAPI.dll`（专有软件）。
@@ -202,8 +238,11 @@ justlilith_a11y\
 | 功能 | 挂载点 | 状态 |
 |---|---|---|
 | 菜单 / 设置 / 聊天 / 画廊键盘导航 | 每帧扫描 uGUI `Selectable`，逐作层补标签（`UiNav.Game.cs`） | **已实机验证**（设置面板 8 个 tab） |
+| 打开 / 关闭游戏功能菜单（`Ctrl+Alt+O`） | `LilithMenu.cs`：`Hotkey` 解析 → `LilithApi.OpenMenu/CloseMenu`（先 `CharacterController.ToggleSetting`，失败退 `SettingView.Show`）+ 1.2 秒「待确认可见」状态机 | 已实现；**未逐项实测** |
+| 功能菜单常驻（不自动隐藏） | `LilithMenu.cs` 的 `KeepAlive()`：只在补丁打开期间重开（冷却 1.5 秒、上限 500 次），**对话一开始就停** | 已实现；长剧情下未实测 |
+| 身体部位导航（8 项：头/脸/胸口/身体/左手/右手/裙子/腿） | `LilithBodyNav.cs` 隐藏 Canvas + 8 个透明虚拟 Button → `LilithApi.TriggerPart`（光标就位 + 游戏原生点击链路；1.5 秒兜底，判据=新台词或 voice clip 变化） | 已实现；**逐部位反应未逐项实测** |
 | 控件朗读（按钮 / 开关 / 滑条 / 下拉 / 输入框 / 图标） | 平台层 `Describe` + 逐作层 `GameLabelOf` | **已实机验证**（读法见上「当前状态」） |
-| 回车激活后重扫并播报「界面已更新」 | `UiNav.cs:2142-2143` | **已实机验证** |
+| 回车激活后重扫并播报「界面已更新」 | `UiNav.cs:2143` | **已实机验证** |
 | 朗读选项 + 数字键直选 | `Choices.cs`：`DialogueNode.HasOptions` / `PlayerLineController.IsAnyOptionsShowing` | **已实机验证**（读「有 N 个选项。选项 1：…」，数字键选中） |
 | 台词朗读（有配音只放语音 / 无配音 TTS） | `Reader.cs`：订阅 `OnDialogueStart/Advance/End/OptionSelected` + 每帧轮询兜底 | 已接通；**本作全程配音，默认不念台词** |
 | 配音判定（有配音就不重复念） | `DialogueManager.ResolveNodeSoundId`（3979）/ `DialogueLineRepository.TryGetVoiceSoundId`（190） | 已实现（依据反编译签名，逐句效果未核对） |
@@ -225,7 +264,7 @@ justlilith_a11y\
 - **`NameAlias` 表是忽略大小写的**：实机曾同时写了 `closeButton` 与 `CloseButton`，
   静态构造抛 `ArgumentException`，整个 `UiNav` 类初始化失败（日志里是
   `TypeInitializationException`），导航 100% 不可用。加行前先按忽略大小写搜一遍
-  （`UiNav.Game.cs:46-52`）。
+  （`UiNav.Game.cs:46-54`）。
 
 **从 A11yFramework 继承来的**：
 

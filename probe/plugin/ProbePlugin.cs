@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Runtime.InteropServices;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Audio;
@@ -119,6 +122,15 @@ namespace LilithProbe
         private int _dumps;
         private float _next;
         private int _done;
+        private bool _autoDumped;
+        private int _phase2;
+        private float _toggleAt = -1f;
+        private string _lastMenu = "";
+        private int _p3Count;
+        private float _p3Next;
+        private int _expStep;
+        private float _expNext;
+        private static bool _expStarted;
 
         private void Awake()
         {
@@ -144,6 +156,57 @@ namespace LilithProbe
 
                 if (Input.GetKeyDown(KeyCode.F5)) SimNavGroup(1);
                 if (Input.GetKeyDown(KeyCode.F6)) SimNavGroup(-1);
+                if (Input.GetKeyDown(KeyCode.C)) DumpCharacter();
+                if (Input.GetKeyDown(KeyCode.M)) DumpMenus();
+
+                if (!_autoDumped && Time.unscaledTime > 25f)
+                {
+                    _autoDumped = true;
+                    ProbePlugin.W("[auto] 开始自动 dump char/menu");
+                    try { DumpCharacter(); } catch (Exception ex) { ProbePlugin.W("[auto] char 异常 " + ex.GetType().Name + ": " + ex.Message); }
+                    try { DumpMenus(); } catch (Exception ex) { ProbePlugin.W("[auto] menu 异常 " + ex.GetType().Name + ": " + ex.Message); }
+                }
+
+                if (_phase2 == 0 && Time.unscaledTime > 40f)
+                {
+                    _phase2 = 1;
+                    try { DumpHitAreaDetails(); } catch (Exception ex) { ProbePlugin.W("[hit] 异常 " + ex.GetType().Name + ": " + ex.Message); }
+                    try
+                    {
+                        var tcc = GType("CharacterController");
+                        var arr = tcc == null ? null : Resources.FindObjectsOfTypeAll(Il2CppType.From(tcc));
+                        ProbePlugin.W("[menu2] CharacterController instances=" + (arr == null ? "null" : arr.Length.ToString()));
+                        if (arr != null && arr.Length > 0)
+                        {
+                            var cc = arr[0].TryCast<Component>();
+                            if (cc != null)
+                            {
+                                var m = cc.GetType().GetMethod("ToggleSetting", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                                ProbePlugin.W("[menu2] ToggleSetting method=" + (m != null));
+                                if (m != null) { m.Invoke(cc, null); _toggleAt = Time.unscaledTime; }
+                            }
+                        }
+                    }
+                    catch (Exception ex) { ProbePlugin.W("[menu2] 异常 " + ex.GetType().Name + ": " + ex.Message); }
+                }
+                if (!_expStarted && Time.unscaledTime > 60f) { _expStarted = true; _expNext = Time.unscaledTime; }
+                if (_expStarted) { try { ExpTick(); } catch (Exception ex) { ProbePlugin.W("[exp] 异常 " + ex.GetType().Name + ": " + ex.Message); } }
+                if (Time.unscaledTime > 70f) { try { ModCalls(); } catch (Exception ex) { ProbePlugin.W("[mod] 异常 " + ex.GetType().Name); } }
+                if (Time.unscaledTime > 95f && Time.unscaledTime > _nextMenuPoll) { _nextMenuPoll = Time.unscaledTime + 20f; ProbePlugin.W("[mod] menuPoll " + MenuState()); }
+                if (Time.unscaledTime > 92f && !_navToggled) { _navToggled = true; try { CallMod("UiNav", "Toggle"); } catch (Exception ex) { ProbePlugin.W("[mod] Toggle 异常 " + ex.GetType().Name); } }
+                if (Time.unscaledTime > 100f && !_labelsDumped) { _labelsDumped = true; try { SimDumpLabels(); } catch (Exception ex) { ProbePlugin.W("[mod] dump 异常 " + ex.GetType().Name); } }
+                if (Time.unscaledTime > 118f && !_activated) { _activated = true; try { ProbePlugin.W("[mod] 平台激活当前项"); SimPlatformActivate(); } catch (Exception ex) { ProbePlugin.W("[mod] 激活异常 " + ex.GetType().Name); } }
+                if (Time.unscaledTime > 45f && Time.unscaledTime > _p3Next && _p3Count < 10)
+                {
+                    _p3Next = Time.unscaledTime + 3f;
+                    _p3Count++;
+                    ProbePlugin.W("[p3] t=" + Time.unscaledTime.ToString("F0") + " hit=" + HitAreaStates() + " menu=" + MenuState());
+                }
+                if (_phase2 >= 1 && _toggleAt > 0f && Time.unscaledTime > _toggleAt + 1f)
+                {
+                    var st = MenuState();
+                    if (st != _lastMenu) { _lastMenu = st; ProbePlugin.W("[menu2] t=" + (Time.unscaledTime - _toggleAt).ToString("F1") + "s " + st); }
+                }
             }
             catch (Exception ex) { ProbePlugin.W("[hotkey-op] " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -479,6 +542,518 @@ namespace LilithProbe
                 }
             }
             catch (Exception ex) { ProbePlugin.W("[op] OpenTraySetting 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        // C：清点莉莉丝身体可点区域（CharacterHitArea）与点击处理器方法
+        private static Type GType(string name)
+        {
+            var all = new List<System.Reflection.Assembly>();
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) all.Add(a);
+            // 优先 Assembly-CSharp（游戏本体），避免命中 UnityEngine 同名类型（如 CharacterController）
+            all.Sort((x, y) =>
+            {
+                int sx = (x.GetName().Name == "Assembly-CSharp") ? 0 : 1;
+                int sy = (y.GetName().Name == "Assembly-CSharp") ? 0 : 1;
+                return sx.CompareTo(sy);
+            });
+            foreach (var a in all)
+            {
+                try { var direct = a.GetType(name, false); if (direct != null) return direct; } catch { }
+                Type[] ts;
+                try { ts = a.GetTypes(); } catch { continue; }
+                foreach (var t in ts)
+                    if (t.Name == name) return t;
+            }
+            return null;
+        }
+
+        private static string CompList(GameObject go)
+        {
+            var names = new List<string>();
+            foreach (var c in go.GetComponents<Component>())
+            {
+                if (c == null) continue;
+                var n = c.GetType().Name;
+                if (n == "Transform" || n == "RectTransform") continue;
+                names.Add(n);
+            }
+            return string.Join("+", names);
+        }
+
+        private static void DumpCharacter()
+        {
+            try
+            {
+                var th = GType("CharacterHitArea");
+                ProbePlugin.W("[char] CharacterHitArea type=" + (th == null ? "null" : th.FullName));
+                if (th != null)
+                {
+                    var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(th));
+                    ProbePlugin.W("[char] instances=" + arr.Length);
+                    for (int i = 0; i < arr.Length && i < 20; i++)
+                    {
+                        var c = arr[i].TryCast<Component>();
+                        if (c == null) continue;
+                        var go = c.gameObject;
+                        string typeVal = "?";
+                        var p = th.GetProperty("Type", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (p != null && p.CanRead) { try { typeVal = p.GetValue(c)?.ToString(); } catch { } }
+                        string parentChain = "";
+                        var tr = go.transform;
+                        for (int up = 0; up < 4 && tr != null; up++, tr = tr.parent) parentChain += (up == 0 ? "" : " < ") + tr.name;
+                        ProbePlugin.W("[char] #" + i + " name=" + go.name + " type=" + typeVal
+                            + " active=" + go.activeInHierarchy + " comps=" + CompList(go) + " chain=" + parentChain);
+                    }
+                }
+                var thh = GType("CharacterInteractionHandler");
+                ProbePlugin.W("[char] handler type=" + (thh == null ? "null" : thh.FullName));
+                if (thh != null)
+                {
+                    var hs = Resources.FindObjectsOfTypeAll(Il2CppType.From(thh));
+                    ProbePlugin.W("[char] handler instances=" + hs.Length);
+                    foreach (var m in thh.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    {
+                        if (m.Name.StartsWith("get_") || m.Name.StartsWith("set_") || m.Name.StartsWith("add_") || m.Name.StartsWith("remove_")) continue;
+                        ProbePlugin.W("[char] H." + m.Name + "(" + string.Join(",", Array.ConvertAll(m.GetParameters(), q => q.ParameterType.Name + " " + q.Name)) + ")");
+                    }
+                }
+                // 也清点 Lilith 根下的直接子树，找可能的可点对象
+                var root = GameObject.Find("Lilith");
+                if (root != null)
+                {
+                    var kids = new List<string>();
+                    var rt = root.transform;
+                    for (int i0 = 0; i0 < rt.childCount && i0 < 12; i0++)
+                    {
+                        var t0 = rt.GetChild(i0);
+                        kids.Add(t0.name + "[" + CompList(t0.gameObject) + "]");
+                        for (int i1 = 0; i1 < t0.childCount && i1 < 12; i1++)
+                        {
+                            var t1 = t0.GetChild(i1);
+                            kids.Add("  " + t0.name + "/" + t1.name + "[" + CompList(t1.gameObject) + "] active=" + t1.gameObject.activeInHierarchy);
+                        }
+                    }
+                    ProbePlugin.W("[char] Lilith children: " + string.Join(" | ", kids.ToArray()));
+                }
+            }
+            catch (Exception ex) { ProbePlugin.W("[char] 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        // 命中区细节：部位/枚举/碰撞体 bounds/世界中心/各相机屏幕坐标
+        private static void DumpHitAreaDetails()
+        {
+            var camNames = new List<string>();
+            foreach (var cam in Camera.allCameras)
+            {
+                if (cam == null) continue;
+                camNames.Add(cam.name + "(ortho=" + cam.orthographic + ",depth=" + cam.depth + ",rect=" + cam.pixelRect.width + "x" + cam.pixelRect.height + ")");
+            }
+            ProbePlugin.W("[hit] cameras=" + string.Join(" | ", camNames.ToArray()));
+
+            var th = GType("CharacterHitArea");
+            if (th == null) { ProbePlugin.W("[hit] type=null"); return; }
+            var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(th));
+            var pType = th.GetProperty("Type", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < arr.Length && i < 20; i++)
+            {
+                var c = arr[i].TryCast<Component>();
+                if (c == null) continue;
+                var go = c.gameObject;
+                string typeVal = "?";
+                if (pType != null && pType.CanRead) { try { var v = pType.GetValue(c); typeVal = v == null ? "null" : v.ToString(); } catch (Exception ex) { typeVal = "ex:" + ex.GetType().Name; } }
+                var col = go.GetComponent<Collider2D>();
+                string bounds = "no-col";
+                Vector3 world = go.transform.position;
+                if (col != null) { var b = col.bounds; bounds = "c=" + b.center.x.ToString("F2") + "," + b.center.y.ToString("F2") + " s=" + b.size.x.ToString("F2") + "x" + b.size.y.ToString("F2"); world = b.center; }
+                var sp = new List<string>();
+                foreach (var cam in Camera.allCameras)
+                {
+                    if (cam == null) continue;
+                    var p = cam.WorldToScreenPoint(world);
+                    sp.Add(cam.name + "=" + p.x.ToString("F0") + "," + p.y.ToString("F0") + ",z" + p.z.ToString("F1"));
+                }
+                ProbePlugin.W("[hit] #" + i + " " + go.name + " type=" + typeVal + " active=" + go.activeInHierarchy
+                    + " pos=" + go.transform.position.x.ToString("F2") + "," + go.transform.position.y.ToString("F2") + " " + bounds
+                    + " screen[" + string.Join("; ", sp.ToArray()) + "] chain=" + PathOf(go.transform));
+            }
+
+            var thh = GType("CharacterInteractionHandler");
+            if (thh != null)
+            {
+                var hs = Resources.FindObjectsOfTypeAll(Il2CppType.From(thh));
+                ProbePlugin.W("[hit] handler instances=" + hs.Length);
+                for (int i = 0; i < hs.Length && i < 3; i++)
+                {
+                    var c = hs[i].TryCast<Component>();
+                    if (c == null) continue;
+                    foreach (var f in thh.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    {
+                        if (f.FieldType != typeof(bool) && f.FieldType.Name != "Single" && f.FieldType.Name != "Int32") continue;
+                        string val = "?";
+                        try { val = f.GetValue(c)?.ToString(); } catch { }
+                        if (f.Name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0 || f.Name.IndexOf("state", StringComparison.OrdinalIgnoreCase) >= 0 || f.Name.IndexOf("click", StringComparison.OrdinalIgnoreCase) >= 0)
+                            ProbePlugin.W("[hit] H." + f.Name + "=" + val);
+                    }
+                }
+            }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int x, int y);
+
+        // 把 Il2Cpp 对象重新包成代理类型 T（TryCast<Component> 会丢失真实类型，导致 GetMethod 找不到方法）
+        private static object AsType(object il2cppObj, Type t)
+        {
+            if (il2cppObj == null) return null;
+            var baseObj = il2cppObj as Il2CppObjectBase;
+            if (baseObj == null) return null;
+            try
+            {
+                var mi = typeof(Il2CppObjectBase).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .FirstOrDefault(m => m.Name == "TryCast" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0);
+                if (mi != null)
+                {
+                    var r = mi.MakeGenericMethod(t).Invoke(baseObj, null);
+                    if (r != null) return r;
+                }
+            }
+            catch { }
+            try { return Activator.CreateInstance(t, baseObj.Pointer); } catch { return null; }
+        }
+
+        private static object FirstOf(string typeName)
+        {
+            var t = GType(typeName);
+            if (t == null) { ProbePlugin.W("[exp] no type " + typeName); return null; }
+            var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(t));
+            if (arr.Length == 0) { ProbePlugin.W("[exp] no instance " + typeName); return null; }
+            var o = AsType(arr[0], t);
+            ProbePlugin.W("[exp] " + typeName + " proxy=" + (o == null ? "null" : o.GetType().Name));
+            return o;
+        }
+
+        private static void InvokeTyped(object o, Type t, string name, params object[] args)
+        {
+            if (o == null || t == null) { ProbePlugin.W("[exp] null target for " + name); return; }
+            var m = t.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null) { ProbePlugin.W("[exp] no method " + name); return; }
+            try { m.Invoke(o, args); ProbePlugin.W("[exp] 调用 " + name + " 成功"); }
+            catch (Exception ex) { ProbePlugin.W("[exp] 调用 " + name + " 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        private static void EnableInteraction(bool on)
+        {
+            var t = GType("CharacterInteractionHandler");
+            var o = FirstOf("CharacterInteractionHandler");
+            InvokeTyped(o, t, "SetInteractionEnabled", on);
+        }
+
+        private static Vector3 LilithPos()
+        {
+            try
+            {
+                var go = GameObject.Find("Lilith");
+                if (go != null) return go.transform.position;
+            }
+            catch { }
+            return Vector3.zero;
+        }
+
+        private static void ActivateColiders()
+        {
+            try
+            {
+                var th = GType("CharacterHitArea");
+                if (th == null) return;
+                var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(th));
+                if (arr.Length == 0) { ProbePlugin.W("[exp] no hit areas"); return; }
+                var c0 = arr[0].TryCast<Component>();
+                var parent = c0 != null ? c0.transform.parent.gameObject : null;
+                if (parent == null) { ProbePlugin.W("[exp] no parent"); return; }
+                ProbePlugin.W("[exp] Coliders=" + parent.name + " activeSelf=" + parent.activeSelf + " -> SetActive(true)");
+                parent.SetActive(true);
+            }
+            catch (Exception ex) { ProbePlugin.W("[exp] ActivateColiders 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        private static Vector3 AreaCenter(string areaName)
+        {
+            try
+            {
+                var t = GType("CharacterHitArea");
+                if (t == null) return Vector3.zero;
+                var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(t));
+                for (int i = 0; i < arr.Length; i++)
+                {
+                    var c = arr[i].TryCast<Component>();
+                    if (c == null || c.gameObject.name != areaName) continue;
+                    var col = c.gameObject.GetComponent<Collider2D>();
+                    if (col != null) return col.bounds.center;
+                    return c.transform.position;
+                }
+            }
+            catch (Exception ex) { ProbePlugin.W("[exp] AreaCenter 异常 " + ex.GetType().Name); }
+            return Vector3.zero;
+        }
+
+        private static void CallDelayedSingleClick(string area, Vector3 pos)
+        {
+            var t = GType("CharacterInteractionHandler");
+            var te = GType("CharacterHitAreaType");
+            var o = FirstOf("CharacterInteractionHandler");
+            if (t == null || te == null || o == null) return;
+            MethodInfo m = null;
+            foreach (var name in new[] { "DelayedSingleClick", "DelayedSleepSingleClick" })
+            {
+                m = t.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (m != null) break;
+            }
+            if (m == null) { ProbePlugin.W("[exp] no DelayedSingleClick method"); return; }
+            object ev = null;
+            try { ev = System.Enum.Parse(te, area); }
+            catch
+            {
+                try { ev = Activator.CreateInstance(te); } catch { }
+            }
+            ProbePlugin.W("[exp] 调用 " + m.Name + "(" + area + "," + pos + ") enum=" + (ev == null ? "null" : ev.ToString()));
+            try { m.Invoke(o, new object[] { ev, pos }); ProbePlugin.W("[exp] " + m.Name + " 成功"); }
+            catch (Exception ex) { ProbePlugin.W("[exp] " + m.Name + " 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        private static string CharDesktopPoint()
+        {
+            try
+            {
+                var t = GType("CharacterController");
+                var o = FirstOf("CharacterController");
+                if (t == null || o == null) return "null";
+                var m = t.GetMethod("TryGetCharacterDesktopPoint", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (m == null) return "no-method";
+                var args = new object[] { 0, 0 };
+                var ok = (bool)m.Invoke(null, args);
+                var fn = GType("CharacterInteractionHandler");
+                var fo = FirstOf("CharacterInteractionHandler");
+                string enabled = "?";
+                if (fn != null && fo != null)
+                {
+                    var f = fn.GetField("_interactionEnabled", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (f != null) enabled = f.GetValue(fo) + "";
+                }
+                return (ok ? (args[0] + "," + args[1]) : "false") + " enabled=" + enabled;
+            }
+            catch (Exception ex) { return "异常 " + ex.GetType().Name; }
+        }
+
+        private static string CurrentHitArea()
+        {
+            try
+            {
+                var t = GType("CharacterInteractionHandler");
+                var o = FirstOf("CharacterInteractionHandler");
+                if (t == null || o == null) return "null";
+                var mo = t.GetMethod("OverlapMouseColliders", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var mg = t.GetMethod("GetHitArea", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (mo == null || mg == null) return "no-method";
+                var cols = mo.Invoke(o, null);
+                var area = mg.Invoke(o, new[] { cols });
+                var f = t.GetField("_pressHitArea", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var press = f != null ? f.GetValue(o) : null;
+                return "overlap=" + area + " press=" + press;
+            }
+            catch (Exception ex) { return "异常 " + ex.GetType().Name + ": " + ex.Message; }
+        }
+
+        private static void ShowSettingView()
+        {
+            var t = GType("SettingView");
+            var o = FirstOf("SettingView");
+            InvokeTyped(o, t, "Show");
+        }
+
+        private void ExpTick()
+        {
+            if (Time.unscaledTime < _expNext) return;
+            switch (_expStep)
+            {
+                case 0:
+                    ProbePlugin.W("[exp] step0 hit=" + HitAreaStates());
+                    EnableInteraction(true);
+                    _expNext = Time.unscaledTime + 2f;
+                    break;
+                case 1:
+                    ProbePlugin.W("[exp] step1 after enable hit=" + HitAreaStates());
+                    ActivateColiders();
+                    _expNext = Time.unscaledTime + 2f;
+                    break;
+                case 2:
+                    ProbePlugin.W("[exp] step2 after Coliders active hit=" + HitAreaStates());
+                    var pHead = AreaCenter("Head");
+                    ProbePlugin.W("[exp] Head center=" + pHead + " -> DelayedSingleClick(Head)");
+                    CallDelayedSingleClick("Head", pHead);
+                    _expNext = Time.unscaledTime + 4f;
+                    break;
+                case 3:
+                    ProbePlugin.W("[exp] step3 after Head click hit=" + HitAreaStates());
+                    var pSkirt = AreaCenter("Skirt");
+                    ProbePlugin.W("[exp] Skirt center=" + pSkirt + " -> DelayedSingleClick(Skirt)");
+                    CallDelayedSingleClick("Skirt", pSkirt);
+                    _expNext = Time.unscaledTime + 4f;
+                    break;
+                default:
+                    ProbePlugin.W("[exp] step" + _expStep + " cursor=" + Input.mousePosition.x + "," + Input.mousePosition.y + " area=" + CurrentHitArea());
+                    InvokeTyped(FirstOf("CharacterInteractionHandler"), GType("CharacterInteractionHandler"), "HandleMouseDown");
+                    InvokeTyped(FirstOf("CharacterInteractionHandler"), GType("CharacterInteractionHandler"), "HandleMouseUp");
+                    _expNext = Time.unscaledTime + 6f;
+                    break;
+            }
+            _expStep++;
+        }
+        private static bool _modCallsDone;
+        private static bool _navToggled;
+        private static float _nextMenuPoll;
+        private static bool _activated;
+        private static bool _labelsDumped;
+        private static void ModCalls()
+        {
+            if (_modCallsDone) return;
+            _modCallsDone = true;
+            CallMod("LilithMenu", "OnHotkey");
+        }
+
+        private static void CallMod(string typeName, string method, params object[] args)
+        {
+            try
+            {
+                Type t = null;
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (!a.GetName().Name.StartsWith("JustLilithA11y")) continue;
+                    try { t = a.GetType("JustLilithA11y." + typeName, false); } catch { }
+                    if (t != null) break;
+                }
+                if (t == null) { ProbePlugin.W("[mod] 找不到类型 " + typeName); return; }
+                var flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+                MethodInfo m = null;
+                if (args == null || args.Length == 0) m = t.GetMethod(method, flags);
+                else m = t.GetMethods(flags).FirstOrDefault(x => x.Name == method && x.GetParameters().Length == args.Length);
+                if (m == null) { ProbePlugin.W("[mod] 找不到方法 " + typeName + "." + method); return; }
+                var r = m.Invoke(null, args);
+                ProbePlugin.W("[mod] 已调用 " + typeName + "." + method + " -> " + (r == null ? "void" : r.ToString()));
+            }
+            catch (Exception ex) { ProbePlugin.W("[mod] " + typeName + "." + method + " 异常 " + ex.GetType().Name + ": " + ex.Message); }
+        }
+
+        private static string PathOf(GameObject go)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                var t = go.transform;
+                int guard = 0;
+                while (t != null && guard++ < 12)
+                {
+                    if (sb.Length > 0) sb.Insert(0, "/");
+                    sb.Insert(0, t.name + (t.gameObject.activeSelf ? "" : "(off)"));
+                    t = t.parent;
+                }
+                return sb.ToString();
+            }
+            catch { return "?"; }
+        }
+
+        private static string HitAreaStates()
+        {
+            try
+            {
+                var th = GType("CharacterHitArea");
+                if (th == null) return "no-type";
+                var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(th));
+                var parts = new List<string>();
+                for (int i = 0; i < arr.Length && i < 10; i++)
+                {
+                    var c = arr[i].TryCast<Component>();
+                    if (c == null) continue;
+                    var col = c.gameObject.GetComponent<Collider2D>();
+                    string sz = col == null ? "n" : (col.enabled ? "E" : "d") + (col.bounds.size.x.ToString("F2") + "x" + col.bounds.size.y.ToString("F2"));
+                    parts.Add(c.gameObject.name + ":" + (c.gameObject.activeInHierarchy ? 1 : 0) + ":" + sz + ":p=" + PathOf(c.gameObject));
+                }
+                return string.Join(",", parts.ToArray());
+            }
+            catch (Exception ex) { return "ex:" + ex.GetType().Name; }
+        }
+
+        private static string MenuState()
+        {
+            try
+            {
+                var t = GType("SettingView");
+                if (t == null) return "no-type";
+                var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(t));
+                var parts = new List<string>();
+                for (int i = 0; i < arr.Length && i < 6; i++)
+                {
+                    var c = arr[i].TryCast<Component>();
+                    if (c == null) continue;
+                    string alpha = "?";
+                    var cg = c.GetComponent<CanvasGroup>();
+                    if (cg != null) alpha = cg.alpha.ToString("F2");
+                    parts.Add(c.gameObject.name + "=" + c.gameObject.activeInHierarchy + "/a" + alpha);
+                }
+                return "count=" + arr.Length + " " + string.Join(",", parts.ToArray());
+            }
+            catch (Exception ex) { return "ex:" + ex.GetType().Name + ":" + ex.Message; }
+        }
+
+        // M：清点面板/菜单类与自动关闭相关字段
+        private static void DumpMenus()
+        {
+            try
+            {
+                var tb = GType("ViewPanelBase");
+                ProbePlugin.W("[menu] ViewPanelBase type=" + (tb == null ? "null" : tb.FullName));
+                if (tb != null)
+                {
+                    var arr = Resources.FindObjectsOfTypeAll(Il2CppType.From(tb));
+                    ProbePlugin.W("[menu] panel instances=" + arr.Length);
+                    for (int i = 0; i < arr.Length && i < 30; i++)
+                    {
+                        var c = arr[i].TryCast<Component>();
+                        if (c == null) continue;
+                        var go = c.gameObject;
+                        string vis = "?";
+                        var pv = tb.GetProperty("IsVisible", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (pv != null && pv.CanRead) { try { vis = pv.GetValue(c)?.ToString(); } catch { } }
+                        ProbePlugin.W("[menu] #" + i + " " + c.GetType().Name + " name=" + go.name + " active=" + go.activeInHierarchy + " IsVisible=" + vis + " path=" + PathOf(go.transform));
+                    }
+                }
+                var tuk = GType("ModuleUIManagKit");
+                ProbePlugin.W("[menu] ModuleUIManagKit type=" + (tuk == null ? "null" : tuk.FullName));
+                if (tuk != null)
+                {
+                    foreach (var m in tuk.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    {
+                        if (m.Name.StartsWith("get_") || m.Name.StartsWith("set_")) continue;
+                        if (!m.IsStatic && !m.IsPublic && !m.IsPrivate) { }
+                        ProbePlugin.W("[menu] K." + m.Name + "(" + string.Join(",", Array.ConvertAll(m.GetParameters(), q => q.ParameterType.Name)) + ") static=" + m.IsStatic);
+                    }
+                }
+                // 自动关闭相关字段：只打名字里带关键词的
+                string[] kw = { "auto", "hide", "dismiss", "timer", "duration", "delay", "valid", "life" };
+                foreach (var tn in new[] { "DialogueManager", "PlayerLineController", "DialogueBubbleUI" })
+                {
+                    var t = GType(tn);
+                    if (t == null) { ProbePlugin.W("[menu] " + tn + " type=null"); continue; }
+                    var fs = new List<string>();
+                    foreach (var f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    {
+                        var ln = f.Name.ToLowerInvariant();
+                        if (!Array.Exists(kw, k => ln.Contains(k))) continue;
+                        fs.Add(f.Name + ":" + f.FieldType.Name);
+                    }
+                    ProbePlugin.W("[menu] " + tn + " 相关字段: " + string.Join(",", fs.ToArray()));
+                }
+            }
+            catch (Exception ex) { ProbePlugin.W("[menu] 异常 " + ex.GetType().Name + ": " + ex.Message); }
         }
 
         private static void DumpSettingViews()
@@ -875,6 +1450,7 @@ namespace LilithProbe
         }
     }
 }
+
 
 
 

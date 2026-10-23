@@ -109,8 +109,12 @@ namespace JustLilithA11y
                 try { if (Plugin.CfgChoiceHotkeys != null) keys = Plugin.CfgChoiceHotkeys.Value; } catch { }
                 if (!keys) return;
 
-                // 列表放出来已经超过 60 秒 → 认为这次对话早就走了，别让陈旧列表继续吃数字键
-                if (UnityEngine.Time.unscaledTime - _shownAt > 60f)
+                // 列表放出来已经超过 N 秒 → 认为这次对话早就走了，别让陈旧列表继续吃数字键。
+                // 默认 60 秒；打开「对话/选项不自动消失」后放宽到 10 分钟 ——
+                // 因为气泡不再自动消失时，玩家可能盯着同一组选项想很久（用户需求 m01949 ③）。
+                float expire = 60f;
+                try { if (Plugin.CfgBubblePersist != null && Plugin.CfgBubblePersist.Value) expire = 600f; } catch { }
+                if (UnityEngine.Time.unscaledTime - _shownAt > expire)
                 {
                     A11yHost.Diag(LogPrefix + " 待选列表超时，自动作废。");
                     Clear();

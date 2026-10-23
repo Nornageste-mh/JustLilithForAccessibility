@@ -178,6 +178,18 @@ namespace JustLilithA11y
                 Transform t = s.transform;
                 string path = PathOfNode(t, 10);
 
+                // 00) 身体部位导航组（LilithBodyNav.cs 造的隐藏虚拟按钮）：
+                //     对象名 `LilithPart_Head` / `LilithPart_HandLeft` …
+                //     这些按钮的子树只有一个全透明 Image（故意没有任何文字），
+                //     所以标签只能由这里给，绝不能让平台层回退到对象名（会念成「LilithPart_Head」）。
+                string partName = t.gameObject.name;
+                if (partName.StartsWith(LilithApi.PartPrefix, StringComparison.Ordinal))
+                {
+                    string partLabel = LilithBodyNav.LabelOfSuffix(
+                        partName.Substring(LilithApi.PartPrefix.Length));
+                    if (partLabel.Length > 0) return partLabel;
+                }
+
                 // 0a) 日历格：`…/Item_Birthday(Clone)/Calendar/bg/CalendarView/…/DateCell (41)`
                 //     实机证据（task-9 终验）：生日展开日历后扫到 65 项，日历格念成「14，按钮」。
                 //     这类控件的可读名不是纯数字，而是「14 日」。只处理路径含 /Calendar/ 且
@@ -844,6 +856,13 @@ namespace JustLilithA11y
                 string n = root.name ?? "";
                 if (n.Length == 0) return "";
 
+                // ⓪ 身体部位导航组：LilithBodyNav 造的隐藏 Canvas（见 LilithBodyNav.cs）。
+                //    它不在游戏自己的面板体系里，名字也带不了「中文」，所以必须在这里映射。
+                //    注意：平台层拿到的组根是**容器** "LilithA11yBodyNavContainer"，
+                //    不是 Canvas 的 "LilithA11yBodyNav"（2026-10-23 实机日志证实），故用前缀匹配。
+                if (IsBodyNavRoot(n))
+                    return LilithApi.BodyGroupName;
+
                 // 先去掉 "View" / "(Clone)" / 空格这类后缀再比对，
                 // 依据：实机日志里平台层拿到的原始名是 **TraySettingNew**（不是 TraySettingNewView），
                 // 而旧规则只按 "TraySettingNewView" 匹配 → 全部落到「面板1..7」兜底。
@@ -886,6 +905,30 @@ namespace JustLilithA11y
             }
             catch { }
             return "";
+        }
+
+        /// <summary>
+        /// 面板组的排序优先级（数值小的排前面；平台层默认 100）。
+        ///
+        /// 本作给「莉莉丝交互」一个很小的值：用户主要想先摸莉莉丝本人，
+        /// 而不是先翻设置面板，所以身体部位组排在前面（PageUp/PageDown 换组时第一组就是它）。
+        /// 其余面板返回 100 = 不干预排序。
+        /// </summary>
+        internal static int GameGroupPriority(Transform root)
+        {
+            try
+            {
+                if (root == null) return 100;
+                if (IsBodyNavRoot(root.name)) return 20;
+            }
+            catch { }
+            return 100;
+        }
+
+        /// <summary>组根是否属于身体部位导航组（Canvas 本体或它下面的容器）。</summary>
+        private static bool IsBodyNavRoot(string n)
+        {
+            return n != null && n.IndexOf(LilithApi.BodyCanvasName, StringComparison.Ordinal) == 0;
         }
 
         /// <summary>把 "TraySettingNewView" / "PlayerLine (Clone)" / "XxxView" 归一成面板基名。</summary>
