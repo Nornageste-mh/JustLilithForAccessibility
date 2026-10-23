@@ -4,10 +4,10 @@
 // ②菜单存在时间很短 → 菜单不要自动隐藏、快捷键随时调出。
 //
 // 做法：
-//   - 快捷键默认 Ctrl+Alt+O（HardKey 解析复用平台层 Hotkey）。
+//   - 快捷键默认 Ctrl+Alt+Shift+O（0.2.0.1 起；旧默认 Ctrl+Alt+O。HardKey 解析复用平台层 Hotkey）。
 //     为什么是 O：游戏自带 9 条热键全是 Ctrl+Alt+单字母
 //     （M=music K=alarm T=timer P=pomodoro R=memo_simple B=memo_detailed N=memo_scratch S=mute L=click_through，
-//      见实机日志 [Hotkey] 段），O 空闲；导航开关键用的是 Ctrl+Alt+主键盘加号，不冲突。
+//      见实机日志 [Hotkey] 段），O 空闲；加 Shift 进一步拉开距离。导航开关键是 Ctrl+Alt+主键盘加号，不冲突。
 //   - 开关动作走 LilithApi.OpenMenu/CloseMenu（CharacterController.ToggleSetting → SettingView.Show 兜底）。
 //   - 「不自动隐藏」用保活实现：只在**我们自己打开、且用户没有主动关闭**的期间生效；
 //     检测到菜单又从可见变不可见时重新打开（有冷却与次数上限，绝不无限刷）。
@@ -95,7 +95,7 @@ namespace JustLilithA11y
                 else
                 {
                     LogWarn(LogPrefix + " 打开菜单快捷键 \"" + spec + "\" 不可识别（" + why +
-                            "），本快捷键停用。写法示例：Ctrl+Alt+O / Ctrl+Alt+Plus / F2");
+                            "），本快捷键停用。写法示例：Ctrl+Alt+Shift+O / Ctrl+Alt+Plus / F2");
                 }
             }
             if (!_keyOk) return false;

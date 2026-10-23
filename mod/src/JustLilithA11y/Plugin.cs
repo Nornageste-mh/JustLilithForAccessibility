@@ -54,7 +54,7 @@ namespace JustLilithA11y
     ///
     /// 铁律 1：不许猜方法名和对象名。只能来自反编译实查，或实机运行时日志。
     /// </summary>
-    [BepInPlugin(Guid, "不/存在的莉莉丝 A11y Reader", "0.2.0")]
+    [BepInPlugin(Guid, "不/存在的莉莉丝 A11y Reader", "0.2.0.1")]
     public class Plugin : BasePlugin
     {
         public const string Guid = "justlilith.a11y.reader";
@@ -93,6 +93,7 @@ namespace JustLilithA11y
         internal static ConfigEntry<string> CfgExcludeNames;
 
         // ---- 其它 ----
+        internal static ConfigEntry<bool> CfgHideConsole;
         internal static ConfigEntry<bool> CfgSpeakRawName;
         internal static ConfigEntry<bool> CfgUnknownConfirm;
         internal static ConfigEntry<bool> CfgGlobalKeys;
@@ -214,13 +215,14 @@ namespace JustLilithA11y
                 "游戏自己该收到的按键照样收到。\n" +
                 "如果某项系统权限导致读取失败，日志会写明失败原因，此时退回「只在游戏有焦点时生效」。");
 
-            CfgMenuKey = Config.Bind("界面导航", "打开菜单快捷键", "Ctrl+Alt+O",
+            CfgMenuKey = Config.Bind("界面导航", "打开菜单快捷键", "Ctrl+Alt+Shift+O",
                 "随时打开 / 关闭游戏功能菜单（SettingView）的快捷键，**不需要先进导航模式**。\n" +
                 "本作功能菜单默认不显示，而且会自己隐藏；有了这个键就能随时调出来。\n" +
-                "为什么默认 Ctrl+Alt+O：本作游戏自带 9 条热键全是 Ctrl+Alt+单字母\n" +
+                "为什么默认 Ctrl+Alt+Shift+O（0.2.0.1 起，旧默认 Ctrl+Alt+O）：\n" +
+                "本作游戏自带 9 条热键全是 Ctrl+Alt+单字母\n" +
                 "（M 音乐 / K 闹钟 / T 计时 / P 番茄钟 / R 简易备忘 / B 详细备忘 / N 草稿备忘 / S 静音 / L 单击穿透），\n" +
-                "O 没有被占用；导航开关键是 Ctrl+Alt+主键盘加号，也不冲突。\n" +
-                "写法与「导航开关快捷键」相同（Ctrl+Alt+O / Ctrl+Alt+Plus / F2 之类），写错会在日志里提示并停用本快捷键。\n" +
+                "加一层 Shift 与这 9 条更拉开距离；导航开关键是 Ctrl+Alt+主键盘加号（= Ctrl+Alt+Shift+=），同风格不冲突。\n" +
+                "写法与「导航开关快捷键」相同（Ctrl+Alt+Shift+O / Ctrl+Alt+Plus / F2 之类），写错会在日志里提示并停用本快捷键。\n" +
                 "打开/关闭时会朗读「功能菜单已打开 / 已关闭」。");
 
             CfgMenuKeepAlive = Config.Bind("界面导航", "功能菜单不自动隐藏", true,
@@ -259,6 +261,12 @@ namespace JustLilithA11y
                 "这些对象**及其整棵子树**里的控件不纳入导航（按祖先链匹配）。\n" +
                 "用途：把画面上的噪音（社交链接条、装饰按钮）从导航里摘掉。\n" +
                 "多个名字用逗号分隔；留空则关闭。");
+
+            CfgHideConsole = Config.Bind("其它", "启动时隐藏控制台窗口", true,
+                "游戏启动后自动把 BepInEx 的黑色控制台窗口藏起来（0.2.0.1 起）。\n" +
+                "★ 默认开：控制台窗口会挡住游戏画面，对读屏用户没有任何用处。\n" +
+                "只是隐藏窗口，日志照常写入 BepInEx\\LogOutput.log；排查问题时仍可从那里看。\n" +
+                "关掉后控制台窗口照常显示。");
 
             CfgSpeakRawName = Config.Bind("界面导航", "朗读原始控件名", false,
                 "控件读不到任何文字时，退化成念 Unity 里的对象名 / 类型名 / ID。\n" +
@@ -304,6 +312,27 @@ namespace JustLilithA11y
                 "★ 只在需要验证「事件挂了还是抓不到数据」时打开，平时别开（可能多念临时台词）。");
 
             // ================================================================
+            // 2b) 隐藏 BepInEx 控制台窗口（0.2.0.1 起，默认开）
+            //     只是把窗口藏起来，日志照常写 BepInEx\LogOutput.log。
+            // ================================================================
+            try
+            {
+                if (CfgHideConsole.Value)
+                {
+                    IntPtr h = GetConsoleWindow();
+                    if (h != IntPtr.Zero)
+                    {
+                        ShowWindow(h, 0 /* SW_HIDE */);
+                        Log.LogInfo("[a11y] 已隐藏 BepInEx 控制台窗口（配置「启动时隐藏控制台窗口」= true；日志仍在 BepInEx\\LogOutput.log）");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Log.LogWarning("[a11y] 隐藏控制台窗口失败（不影响其它功能）: " + e.Message);
+            }
+
+            // ================================================================
             // 3) 挂上自己的 MonoBehaviour（BepInEx 6 的 BasePlugin 不是组件，
             //    每帧逻辑必须在 AddComponent 出来的组件里跑）
             // ================================================================
@@ -316,6 +345,15 @@ namespace JustLilithA11y
                 Log.LogError("[a11y] AddComponent<LilithBehaviour> 失败: " + e);
             }
         }
+
+        // ================================================================
+        // 隐藏控制台窗口用的 Win32（只在「启动时隐藏控制台窗口」为 true 时用一次）
+        // ================================================================
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetConsoleWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     }
 
     /// <summary>
